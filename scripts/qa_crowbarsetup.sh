@@ -1510,24 +1510,68 @@ function set_proposalvars()
     # Determine if we went through an upgrade
     [ -f /etc/cloudsource ] && export cloudsource=$(</etc/cloudsource)
 
-    wantswift=1
-    [ -z "$want_swift" ] && wantceph=1
-    [[ -n "$wanthyperv" ]] && wantswift= && wantceph= && networkingmode=vlan
-    wanttempest=
-    iscloudver 4plus && wanttempest=1
-    [[ "$want_tempest" = 0 ]] && wanttempest=
+    ### dynamic defaults
+    case $nodenumber in
+        0|1)
+            wantswift=
+            wantceph=
+        ;;
+        2)
+            wantswift=1
+            wantceph=
+        ;;
+        *)
+            wantswift=
+            wantceph=1
+        ;;
+    esac
 
-    iscloudver 5 && {
+    ### filter (temporarily changing defaults)
+    # F1: hyperV only without swift and ceph
+    [ -n "$wanthyperv" ] && wantswift= && wantceph= && networkingmode=vlan
+
+    # F2: no swift on SLE12
+    if iscloudver 5 ; then
         echo "WARNING: swift currently disabled, because openstack-swift packages for SLES12 are missing"
         wantswift=
-    }
+    fi
 
-    [[ "$nodenumber" -lt 3 || "$cephvolumenumber" -lt 1 ]] && wantceph=
-    # we can not use both swift and ceph as each grabs all disks on a node
-    [[ -n "$wantceph" ]] && wantswift=
-    [[ "$cephvolumenumber" -lt 1 ]] && wantswift=
+    ### user requests (can override defaults and filters)
+    case $want_ceph in
+        '') ;;
+        0)  wantceph= ;;
+        *)  wantceph=1 ;;
+    esac
+    case $want_swift in
+        '') ;;
+        0)  wantswift= ;;
+        *)  wantswift=1 ;;
+    esac
+
+    ### constraints
+    # C1: need at least 3 nodes for ceph
+    if [ "$nodenumber" -lt 3 -a $want_ceph = 1 ] ; then
+        complain 87 "Error: Ceph needs at least 3 nodes to be deployed. You have ${nodenumber} nodes."
+    fi
+
+    # C2: ceph or swift is only possible with at least one volume
+    [ $cephvolumenumber -lt 1 ] && wantswift= && wantceph=
+
+    ### FINAL swift and ceph check
+    if [ -n "$wantswift" -a -n "$wantceph" ] ; then
+        complain 89 "Error: Can not deploy ceph and swift at the same time."
+    fi
+    ### do NOT set/change wantceph or wantswift below this line!
+
+    # Tempest
+    wanttempest=
+    iscloudver 4plus && wanttempest=1
+    [ "$want_tempest" = 0 ] && wanttempest=
+
+    # Network - there is only one
     crowbar_networking=neutron
 
+    # Cinder
     if [[ -z "$cinder_conf_volume_type" ]]; then
         if [[ -n "$wantceph" ]]; then
             cinder_conf_volume_type="rbd"
