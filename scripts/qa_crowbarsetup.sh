@@ -1503,9 +1503,18 @@ function custom_configuration()
         ;;
     esac
 
-    crowbar $proposal proposal --file=$pfile edit $proposaltype
-    local ret=$?
-    [ $ret != 0 ] && complain 88 "Error: 'crowbar $proposal proposal --file=$pfile edit $proposaltype' failed with exit code: $ret"
+    local loopnum=8
+    for n in `seq 1 $loopnum` ; do
+        echo "crowbar proposal edit: TRY #$n"
+        crowbar $proposal proposal --file=$pfile edit $proposaltype
+        local ret=$?
+        [[ $ret == 0 ]] && break
+        [[ $loopnum == $n ]] && break
+        sleep 5m
+    done
+    if [[ $ret != 0 ]] ; then
+        complain 88 "Error: 'crowbar $proposal proposal --file=$pfile edit $proposaltype' failed with exit code: $ret"
+    fi
 }
 
 # set global variables to be used in and after proposal phase
